@@ -50,23 +50,74 @@ interface CourseItem {
 
 // 状态管理
 const students = ref<Student[]>([])
+const filteredStudents = ref<Student[]>([])
 const selectedStudent = ref<Student | null>(null)
 const activeTab = ref('upload')
 const singleStudentId = ref('')
 const singleStudentName = ref('')
 const isLoading = ref(false)
 const errorMessage = ref('')
+const isFiltering = ref(false)
 
 // 分页相关状态
 const currentPage = ref<number>(1)
 const pageSize = ref<number>(10)
 const pageSizeOptions = [5, 10, 20, 50, 100]
-const totalPages = computed(() => Math.ceil(students.value.length / pageSize.value))
+const totalPages = computed(() => Math.ceil(displayedStudents.value.length / pageSize.value))
+
+// 筛选条件
+const filterOptions = [
+  { value: 'all', label: '显示全部' },
+  { value: 'tsCreditsLow', label: '通识教育学分不足' },
+  { value: 'dsjhCreditsLow', label: '读书计划学分不足' },
+  { value: 'anyCreditsLow', label: '任一学分不足' },
+  { value: 'allCreditsLow', label: '全部学分不足' },
+  { value: 'allCreditsFull', label: '全部学分已满' }
+]
+const currentFilter = ref('all')
+
+// 计算筛选后的学生列表
+const displayedStudents = computed(() => {
+  if (currentFilter.value === 'all') {
+    return students.value
+  }
+  
+  return students.value.filter(student => {
+    if (!student.data) return false
+    
+    const tsCredit = student.data.tsCredit
+    const dsjhCredit = student.data.dsjhCredit
+    
+    switch (currentFilter.value) {
+      case 'tsCreditsLow':
+        return tsCredit < 1
+      case 'dsjhCreditsLow':
+        return dsjhCredit < 1
+      case 'anyCreditsLow':
+        return tsCredit < 1 || dsjhCredit < 1
+      case 'allCreditsLow':
+        return tsCredit < 1 && dsjhCredit < 1
+      case 'allCreditsFull':
+        return tsCredit >= 1 && dsjhCredit >= 1
+      default:
+        return true
+    }
+  })
+})
+
+// 计算当前页要显示的学生
 const paginatedStudents = computed(() => {
   const start = (currentPage.value - 1) * pageSize.value
   const end = start + pageSize.value
-  return students.value.slice(start, end)
+  return displayedStudents.value.slice(start, end)
 })
+
+// 应用筛选
+const applyFilter = (filter: string) => {
+  currentFilter.value = filter
+  // 重置到第一页
+  currentPage.value = 1
+}
 
 // 分页操作函数
 const goToPage = (page: number) => {
@@ -381,6 +432,27 @@ const formatDate = (timestamp: number) => {
     
     <!-- 学生列表 -->
     <Card v-if="students.length > 0" class="bg-white rounded-lg shadow overflow-hidden mb-4">
+      <!-- 筛选选项 -->
+      <div class="flex justify-between items-center px-4 py-3 border-b border-gray-200">
+        <div class="flex flex-wrap items-center gap-2">
+          <span class="text-sm text-gray-600">筛选:</span>
+          <div class="flex flex-wrap gap-2">
+            <Button 
+              v-for="option in filterOptions" 
+              :key="option.value"
+              :variant="currentFilter === option.value ? 'default' : 'outline'"
+              size="sm"
+              @click="applyFilter(option.value)"
+            >
+              {{ option.label }}
+            </Button>
+          </div>
+        </div>
+        <div class="text-sm text-gray-600">
+          筛选结果: {{ displayedStudents.length }} 条记录
+        </div>
+      </div>
+      
       <!-- 分页设置和信息 -->
       <div class="flex justify-between items-center px-4 py-3 border-b border-gray-200">
         <div class="flex items-center space-x-2">
@@ -397,7 +469,7 @@ const formatDate = (timestamp: number) => {
           </Select>
         </div>
         <div class="text-sm text-gray-600">
-          显示 {{ (currentPage - 1) * pageSize + 1 }}-{{ Math.min(currentPage * pageSize, students.length) }} 条，共 {{ students.length }} 条
+          显示 {{ displayedStudents.length ? (currentPage - 1) * pageSize + 1 : 0 }}-{{ Math.min(currentPage * pageSize, displayedStudents.length) }} 条，共 {{ displayedStudents.length }} 条
         </div>
       </div>
       
@@ -412,6 +484,7 @@ const formatDate = (timestamp: number) => {
             <TableHead class="px-4 py-2 font-medium text-left">通识教育学分</TableHead>
             <TableHead class="px-4 py-2 font-medium text-left">读书计划学分</TableHead>
             <TableHead class="px-4 py-2 font-medium text-left">总学分</TableHead>
+            <TableHead class="px-4 py-2 font-medium text-left">状态</TableHead>
             <TableHead class="px-4 py-2 font-medium text-left">操作</TableHead>
           </TableRow>
         </TableHeader>
@@ -422,9 +495,29 @@ const formatDate = (timestamp: number) => {
             <TableCell class="px-4 py-2">{{ student.data?.college || '-' }}</TableCell>
             <TableCell class="px-4 py-2">{{ student.data?.major || '-' }}</TableCell>
             <TableCell class="px-4 py-2">{{ student.data?.className || '-' }}</TableCell>
-            <TableCell class="px-4 py-2">{{ student.data?.tsCredit }}</TableCell>
-            <TableCell class="px-4 py-2">{{ student.data?.dsjhCredit }}</TableCell>
-            <TableCell class="px-4 py-2">{{ student.data?.totalCredit }}</TableCell>
+            <TableCell class="px-4 py-2" :class="student.data && student.data.tsCredit < 1 ? 'text-red-500 font-bold' : ''">
+              {{ student.data?.tsCredit }}
+            </TableCell>
+            <TableCell class="px-4 py-2" :class="student.data && student.data.dsjhCredit < 1 ? 'text-red-500 font-bold' : ''">
+              {{ student.data?.dsjhCredit }}
+            </TableCell>
+            <TableCell class="px-4 py-2" :class="student.data && student.data.totalCredit < 2 ? 'text-red-500 font-bold' : ''">
+              {{ student.data?.totalCredit }}
+            </TableCell>
+            <TableCell class="px-4 py-2">
+              <span v-if="student.data && student.data.tsCredit >= 1 && student.data.dsjhCredit >= 1" class="px-2 py-1 bg-green-100 text-green-800 rounded-full text-xs">
+                学分已满
+              </span>
+              <span v-else-if="student.data && student.data.tsCredit < 1 && student.data.dsjhCredit < 1" class="px-2 py-1 bg-red-100 text-red-800 rounded-full text-xs">
+                学分不足
+              </span>
+              <span v-else-if="student.data && student.data.tsCredit < 1" class="px-2 py-1 bg-yellow-100 text-yellow-800 rounded-full text-xs">
+                通识学分不足
+              </span>
+              <span v-else-if="student.data && student.data.dsjhCredit < 1" class="px-2 py-1 bg-yellow-100 text-yellow-800 rounded-full text-xs">
+                读书学分不足
+              </span>
+            </TableCell>
             <TableCell class="px-4 py-2">
               <div v-if="student.loading" class="animate-pulse">加载中...</div>
               <div v-else-if="student.error" class="text-red-500">{{ student.error }}</div>
@@ -534,19 +627,24 @@ const formatDate = (timestamp: number) => {
               </div>
             </TableCell>
           </TableRow>
+          <TableRow v-if="paginatedStudents.length === 0">
+            <TableCell colspan="10" class="px-4 py-8 text-center text-gray-500">
+              没有符合筛选条件的学生数据
+            </TableCell>
+          </TableRow>
         </TableBody>
       </Table>
       
       <!-- 分页控制 -->
       <div class="flex justify-between items-center px-4 py-3 border-t border-gray-200">
         <div class="flex items-center space-x-2">
-          <span class="text-sm text-gray-600">第 {{ currentPage }}/{{ totalPages }} 页</span>
+          <span class="text-sm text-gray-600">第 {{ currentPage }}/{{ totalPages || 1 }} 页</span>
         </div>
         <div class="flex space-x-2">
-          <Button @click="goToFirstPage" :disabled="currentPage === 1" variant="outline" size="sm">
+          <Button @click="goToFirstPage" :disabled="currentPage === 1 || displayedStudents.length === 0" variant="outline" size="sm">
             首页
           </Button>
-          <Button @click="goToPreviousPage" :disabled="currentPage === 1" variant="outline" size="sm">
+          <Button @click="goToPreviousPage" :disabled="currentPage === 1 || displayedStudents.length === 0" variant="outline" size="sm">
             上一页
           </Button>
           <div class="flex items-center space-x-1">
@@ -556,14 +654,15 @@ const formatDate = (timestamp: number) => {
               class="w-16 h-8 text-center"
               type="number"
               min="1"
-              :max="totalPages"
+              :max="totalPages || 1"
+              :disabled="displayedStudents.length === 0"
             />
-            <span class="text-sm text-gray-600">/{{ totalPages }}</span>
+            <span class="text-sm text-gray-600">/{{ totalPages || 1 }}</span>
           </div>
-          <Button @click="goToNextPage" :disabled="currentPage === totalPages" variant="outline" size="sm">
+          <Button @click="goToNextPage" :disabled="currentPage === totalPages || displayedStudents.length === 0" variant="outline" size="sm">
             下一页
           </Button>
-          <Button @click="goToLastPage" :disabled="currentPage === totalPages" variant="outline" size="sm">
+          <Button @click="goToLastPage" :disabled="currentPage === totalPages || displayedStudents.length === 0" variant="outline" size="sm">
             末页
           </Button>
         </div>
