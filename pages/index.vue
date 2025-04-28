@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
+import { ref, reactive, computed } from 'vue'
 import { read, utils } from 'xlsx'
 import { useFileDialog } from '@vueuse/core'
 
@@ -9,6 +9,7 @@ import { Input } from '~/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '~/components/ui/card'
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from '~/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '~/components/ui/tabs'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '~/components/ui/select'
 
 interface Student {
   studentId: string
@@ -55,6 +56,37 @@ const singleStudentId = ref('')
 const singleStudentName = ref('')
 const isLoading = ref(false)
 const errorMessage = ref('')
+
+// 分页相关状态
+const currentPage = ref<number>(1)
+const pageSize = ref<number>(10)
+const pageSizeOptions = [5, 10, 20, 50, 100]
+const totalPages = computed(() => Math.ceil(students.value.length / pageSize.value))
+const paginatedStudents = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value
+  const end = start + pageSize.value
+  return students.value.slice(start, end)
+})
+
+// 分页操作函数
+const goToPage = (page: number) => {
+  if (page >= 1 && page <= totalPages.value) {
+    currentPage.value = page
+  }
+}
+
+const goToFirstPage = () => goToPage(1)
+const goToPreviousPage = () => goToPage(currentPage.value - 1)
+const goToNextPage = () => goToPage(currentPage.value + 1)
+const goToLastPage = () => goToPage(totalPages.value)
+
+const handlePageSizeChange = (value: any) => {
+  pageSize.value = typeof value === 'string' ? parseInt(value) : value
+  // 当改变每页显示数量时，可能需要调整当前页码
+  if (currentPage.value > totalPages.value) {
+    currentPage.value = totalPages.value || 1
+  }
+}
 
 // 文件上传处理
 const { open, onChange } = useFileDialog()
@@ -348,7 +380,27 @@ const formatDate = (timestamp: number) => {
     </div>
     
     <!-- 学生列表 -->
-    <Card v-if="students.length > 0" class="bg-white rounded-lg shadow overflow-hidden">
+    <Card v-if="students.length > 0" class="bg-white rounded-lg shadow overflow-hidden mb-4">
+      <!-- 分页设置和信息 -->
+      <div class="flex justify-between items-center px-4 py-3 border-b border-gray-200">
+        <div class="flex items-center space-x-2">
+          <span class="text-sm text-gray-600">每页显示:</span>
+          <Select v-model="pageSize" @update:modelValue="handlePageSizeChange">
+            <SelectTrigger class="w-[80px] h-8">
+              <SelectValue :placeholder="String(pageSize)" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem v-for="size in pageSizeOptions" :key="size" :value="size">
+                {{ size }}
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div class="text-sm text-gray-600">
+          显示 {{ (currentPage - 1) * pageSize + 1 }}-{{ Math.min(currentPage * pageSize, students.length) }} 条，共 {{ students.length }} 条
+        </div>
+      </div>
+      
       <Table>
         <TableHeader>
           <TableRow>
@@ -364,7 +416,7 @@ const formatDate = (timestamp: number) => {
           </TableRow>
         </TableHeader>
         <TableBody>
-          <TableRow v-for="student in students" :key="student.studentId" :class="{'bg-gray-50': student.loading}">
+          <TableRow v-for="student in paginatedStudents" :key="student.studentId" :class="{'bg-gray-50': student.loading}">
             <TableCell class="px-4 py-2">{{ student.studentId }}</TableCell>
             <TableCell class="px-4 py-2">{{ student.studentName }}</TableCell>
             <TableCell class="px-4 py-2">{{ student.data?.college || '-' }}</TableCell>
@@ -484,6 +536,38 @@ const formatDate = (timestamp: number) => {
           </TableRow>
         </TableBody>
       </Table>
+      
+      <!-- 分页控制 -->
+      <div class="flex justify-between items-center px-4 py-3 border-t border-gray-200">
+        <div class="flex items-center space-x-2">
+          <span class="text-sm text-gray-600">第 {{ currentPage }}/{{ totalPages }} 页</span>
+        </div>
+        <div class="flex space-x-2">
+          <Button @click="goToFirstPage" :disabled="currentPage === 1" variant="outline" size="sm">
+            首页
+          </Button>
+          <Button @click="goToPreviousPage" :disabled="currentPage === 1" variant="outline" size="sm">
+            上一页
+          </Button>
+          <div class="flex items-center space-x-1">
+            <Input
+              :model-value="currentPage"
+              @update:model-value="(val) => goToPage(Number(val))"
+              class="w-16 h-8 text-center"
+              type="number"
+              min="1"
+              :max="totalPages"
+            />
+            <span class="text-sm text-gray-600">/{{ totalPages }}</span>
+          </div>
+          <Button @click="goToNextPage" :disabled="currentPage === totalPages" variant="outline" size="sm">
+            下一页
+          </Button>
+          <Button @click="goToLastPage" :disabled="currentPage === totalPages" variant="outline" size="sm">
+            末页
+          </Button>
+        </div>
+      </div>
     </Card>
   </div>
 </template>
