@@ -82,36 +82,83 @@ const processExcelFile = async (file: File) => {
     const worksheet = workbook.Sheets[workbook.SheetNames[0]]
     const jsonData = utils.sheet_to_json<{[key: string]: any}>(worksheet)
     
-    // 查找学号和姓名列
-    const firstRow = jsonData[0]
-    const headers = Object.keys(firstRow)
-    
-    let studentIdKey = ''
-    let studentNameKey = ''
-    
-    // 尝试找到学号和姓名列
-    for (const key of headers) {
-      const lowerKey = key.toLowerCase()
-      if (lowerKey.includes('学号') || lowerKey.includes('id') || lowerKey.includes('编号')) {
-        studentIdKey = key
-      }
-      if (lowerKey.includes('姓名') || lowerKey.includes('name')) {
-        studentNameKey = key
-      }
-    }
-    
-    if (!studentIdKey || !studentNameKey) {
-      errorMessage.value = '无法识别Excel中的学号或姓名列，请确保文件包含这些信息'
+    if (jsonData.length === 0) {
+      errorMessage.value = 'Excel文件为空或格式不正确'
       isLoading.value = false
       return
     }
     
+    console.log("Excel数据:", jsonData)
+    
+    // 获取所有可能的列名
+    const allHeaders = new Set<string>()
+    
+    // 遍历所有行来收集所有可能的列名
+    for (const row of jsonData) {
+      const rowKeys = Object.keys(row)
+      for (const key of rowKeys) {
+        allHeaders.add(key)
+      }
+    }
+    
+    const headers = Array.from(allHeaders)
+    console.log("所有可能的列名:", headers)
+    
+    let studentIdKey = ''
+    let studentNameKey = ''
+    
+    // 尝试找到学号和姓名列，检查所有可能的列名
+    for (const key of headers) {
+      const lowerKey = String(key).toLowerCase()
+      console.log("检查列名:", key, "转小写:", lowerKey)
+      
+      // 学号可能的名称
+      if (lowerKey.includes('学号') || 
+          lowerKey.includes('id') || 
+          lowerKey.includes('编号') || 
+          lowerKey.includes('学生编号') ||
+          lowerKey.includes('学籍号') ||
+          lowerKey.includes('student') && lowerKey.includes('id') ||
+          lowerKey.includes('no')) {
+        studentIdKey = key
+        console.log("找到学号列:", key)
+      }
+      
+      // 姓名可能的名称
+      if (lowerKey.includes('姓名') || 
+          lowerKey.includes('name') || 
+          lowerKey.includes('学生姓名') ||
+          lowerKey.includes('学生名字') ||
+          lowerKey.includes('student') && lowerKey.includes('name')) {
+        studentNameKey = key
+        console.log("找到姓名列:", key)
+      }
+    }
+    
+    if (!studentIdKey || !studentNameKey) {
+      errorMessage.value = `无法识别Excel中的数据列。${!studentIdKey ? '找不到学号列；' : ''}${!studentNameKey ? '找不到姓名列；' : ''}请确保文件包含这些信息，或者重命名列名为"学号"和"姓名"`
+      isLoading.value = false
+      return
+    }
+    
+    console.log("使用的学号列:", studentIdKey, "姓名列:", studentNameKey)
+    
     // 提取学生信息
-    students.value = jsonData.map(row => ({
-      studentId: String(row[studentIdKey]),
-      studentName: String(row[studentNameKey]),
-      loading: false
-    }))
+    students.value = jsonData.map(row => reactive({
+      studentId: String(row[studentIdKey] || '').trim(),
+      studentName: String(row[studentNameKey] || '').trim(),
+      loading: false,
+      data: undefined,
+      error: undefined
+    })).filter(student => student.studentId && student.studentName)  // 过滤掉没有学号或姓名的行
+    
+    console.log("解析出的学生信息:", students.value)
+    
+    if (students.value.length === 0) {
+      errorMessage.value = '没有找到有效的学生信息，请检查Excel文件格式'
+      isLoading.value = false
+      return
+    }
     
     // 批量查询学生信息
     await fetchAllStudentsData()
@@ -224,7 +271,6 @@ const fetchSingleStudent = async () => {
     
     await fetchStudentData(newStudent)
     
-    console.log("newStudent ==> ",students.value);
     // 重置输入
     singleStudentId.value = ''
     singleStudentName.value = ''
