@@ -59,6 +59,21 @@ const isLoading = ref(false)
 const errorMessage = ref('')
 const isFiltering = ref(false)
 
+// 排序相关状态
+const sortField = ref('')
+const sortDirection = ref<'asc' | 'desc'>('asc')
+
+// 排序选项
+const sortOptions = [
+  { value: '', label: '默认排序' },
+  { value: 'studentId', label: '按学号' },
+  { value: 'studentName', label: '按姓名' },
+  { value: 'college', label: '按学院' },
+  { value: 'tsCredit', label: '按通识教育学分' },
+  { value: 'dsjhCredit', label: '按读书计划学分' },
+  { value: 'totalCredit', label: '按总学分' }
+]
+
 // 分页相关状态
 const currentPage = ref<number>(1)
 const pageSize = ref<number>(10)
@@ -78,31 +93,71 @@ const currentFilter = ref('all')
 
 // 计算筛选后的学生列表
 const displayedStudents = computed(() => {
-  if (currentFilter.value === 'all') {
-    return students.value
+  // 先筛选
+  let result = students.value
+  
+  if (currentFilter.value !== 'all') {
+    result = result.filter(student => {
+      if (!student.data) return false
+      
+      const tsCredit = student.data.tsCredit
+      const dsjhCredit = student.data.dsjhCredit
+      
+      switch (currentFilter.value) {
+        case 'tsCreditsLow':
+          return tsCredit < 1
+        case 'dsjhCreditsLow':
+          return dsjhCredit < 1
+        case 'anyCreditsLow':
+          return tsCredit < 1 || dsjhCredit < 1
+        case 'allCreditsLow':
+          return tsCredit < 1 && dsjhCredit < 1
+        case 'allCreditsFull':
+          return tsCredit >= 1 && dsjhCredit >= 1
+        default:
+          return true
+      }
+    })
   }
   
-  return students.value.filter(student => {
-    if (!student.data) return false
-    
-    const tsCredit = student.data.tsCredit
-    const dsjhCredit = student.data.dsjhCredit
-    
-    switch (currentFilter.value) {
-      case 'tsCreditsLow':
-        return tsCredit < 1
-      case 'dsjhCreditsLow':
-        return dsjhCredit < 1
-      case 'anyCreditsLow':
-        return tsCredit < 1 || dsjhCredit < 1
-      case 'allCreditsLow':
-        return tsCredit < 1 && dsjhCredit < 1
-      case 'allCreditsFull':
-        return tsCredit >= 1 && dsjhCredit >= 1
-      default:
-        return true
-    }
-  })
+  // 再排序
+  if (sortField.value) {
+    result = [...result].sort((a, b) => {
+      if (!a.data || !b.data) return 0
+      
+      let valueA: any
+      let valueB: any
+      
+      // 获取排序字段的值
+      if (sortField.value === 'studentId' || sortField.value === 'studentName') {
+        valueA = a[sortField.value as keyof Student]
+        valueB = b[sortField.value as keyof Student]
+      } else if (a.data && b.data) {
+        valueA = a.data[sortField.value as keyof StudentData]
+        valueB = b.data[sortField.value as keyof StudentData]
+      } else {
+        return 0
+      }
+      
+      // 处理空值
+      if (valueA === undefined) return sortDirection.value === 'asc' ? 1 : -1
+      if (valueB === undefined) return sortDirection.value === 'asc' ? -1 : 1
+      
+      // 根据值类型进行比较
+      let result = 0
+      if (typeof valueA === 'number' && typeof valueB === 'number') {
+        result = valueA - valueB
+      } else {
+        // 字符串比较
+        result = String(valueA).localeCompare(String(valueB), 'zh-CN')
+      }
+      
+      // 根据排序方向返回结果
+      return sortDirection.value === 'asc' ? result : -result
+    })
+  }
+  
+  return result
 })
 
 // 计算当前页要显示的学生
@@ -374,6 +429,26 @@ const formatDate = (timestamp: number) => {
   if (!timestamp) return '未知'
   return new Date(timestamp).toLocaleDateString('zh-CN')
 }
+
+// 排序操作函数
+const toggleSort = (field: string) => {
+  if (sortField.value === field) {
+    // 切换排序方向
+    sortDirection.value = sortDirection.value === 'asc' ? 'desc' : 'asc'
+  } else {
+    // 设置新的排序字段，默认升序
+    sortField.value = field
+    sortDirection.value = 'asc'
+  }
+  // 重置到第一页
+  currentPage.value = 1
+}
+
+// 获取排序图标类名
+const getSortIconClass = (field: string) => {
+  if (sortField.value !== field) return 'text-gray-300'
+  return sortDirection.value === 'asc' ? 'text-blue-500' : 'text-blue-500 transform rotate-180'
+}
 </script>
 
 <template>
@@ -453,6 +528,24 @@ const formatDate = (timestamp: number) => {
         </div>
       </div>
       
+      <!-- 排序选项 -->
+      <div class="flex justify-between items-center px-4 py-3 border-b border-gray-200">
+        <div class="flex flex-wrap items-center gap-2">
+          <span class="text-sm text-gray-600">排序:</span>
+          <div class="flex flex-wrap gap-2">
+            <Button 
+              v-for="option in sortOptions" 
+              :key="option.value"
+              :variant="sortField === option.value ? 'default' : 'outline'"
+              size="sm"
+              @click="toggleSort(option.value)"
+            >
+              {{ option.label }}
+            </Button>
+          </div>
+        </div>
+      </div>
+      
       <!-- 分页设置和信息 -->
       <div class="flex justify-between items-center px-4 py-3 border-b border-gray-200">
         <div class="flex items-center space-x-2">
@@ -476,14 +569,64 @@ const formatDate = (timestamp: number) => {
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead class="px-4 py-2 font-medium text-left">学号</TableHead>
-            <TableHead class="px-4 py-2 font-medium text-left">姓名</TableHead>
-            <TableHead class="px-4 py-2 font-medium text-left">学院</TableHead>
-            <TableHead class="px-4 py-2 font-medium text-left">专业</TableHead>
-            <TableHead class="px-4 py-2 font-medium text-left">班级</TableHead>
-            <TableHead class="px-4 py-2 font-medium text-left">通识教育学分</TableHead>
-            <TableHead class="px-4 py-2 font-medium text-left">读书计划学分</TableHead>
-            <TableHead class="px-4 py-2 font-medium text-left">总学分</TableHead>
+            <TableHead class="px-4 py-2 font-medium text-left">
+              <div class="flex items-center space-x-1 cursor-pointer" @click="toggleSort('studentId')">
+                <span>学号</span>
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" :class="getSortIconClass('studentId')">
+                  <path d="M12 5v14M5 12l7-7 7 7"/>
+                </svg>
+              </div>
+            </TableHead>
+            <TableHead class="px-4 py-2 font-medium text-left">
+              <div class="flex items-center space-x-1 cursor-pointer" @click="toggleSort('studentName')">
+                <span>姓名</span>
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" :class="getSortIconClass('studentName')">
+                  <path d="M12 5v14M5 12l7-7 7 7"/>
+                </svg>
+              </div>
+            </TableHead>
+            <TableHead class="px-4 py-2 font-medium text-left">
+              <div class="flex items-center space-x-1 cursor-pointer" @click="toggleSort('college')">
+                <span>学院</span>
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" :class="getSortIconClass('college')">
+                  <path d="M12 5v14M5 12l7-7 7 7"/>
+                </svg>
+              </div>
+            </TableHead>
+            <TableHead class="px-4 py-2 font-medium text-left">
+              <div class="flex items-center space-x-1">
+                <span>专业</span>
+              </div>
+            </TableHead>
+            <TableHead class="px-4 py-2 font-medium text-left">
+              <div class="flex items-center space-x-1">
+                <span>班级</span>
+              </div>
+            </TableHead>
+            <TableHead class="px-4 py-2 font-medium text-left">
+              <div class="flex items-center space-x-1 cursor-pointer" @click="toggleSort('tsCredit')">
+                <span>通识教育学分</span>
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" :class="getSortIconClass('tsCredit')">
+                  <path d="M12 5v14M5 12l7-7 7 7"/>
+                </svg>
+              </div>
+            </TableHead>
+            <TableHead class="px-4 py-2 font-medium text-left">
+              <div class="flex items-center space-x-1 cursor-pointer" @click="toggleSort('dsjhCredit')">
+                <span>读书计划学分</span>
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" :class="getSortIconClass('dsjhCredit')">
+                  <path d="M12 5v14M5 12l7-7 7 7"/>
+                </svg>
+              </div>
+            </TableHead>
+            <TableHead class="px-4 py-2 font-medium text-left">
+              <div class="flex items-center space-x-1 cursor-pointer" @click="toggleSort('totalCredit')">
+                <span>总学分</span>
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" :class="getSortIconClass('totalCredit')">
+                  <path d="M12 5v14M5 12l7-7 7 7"/>
+                </svg>
+              </div>
+            </TableHead>
             <TableHead class="px-4 py-2 font-medium text-left">状态</TableHead>
             <TableHead class="px-4 py-2 font-medium text-left">操作</TableHead>
           </TableRow>
